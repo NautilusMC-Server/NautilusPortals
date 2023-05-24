@@ -1,0 +1,4 @@
+name: NautilusPortals
+version: '${project.version}'
+main: org.nautilusmc.nautilusportals.NautilusPortals
+api-version: 1.19
