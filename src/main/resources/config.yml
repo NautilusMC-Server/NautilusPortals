@@ -39,3 +39,7 @@ portalRecipes:
         count: 0
       - id: 'minecraft:air'
         count: 0
+
+players: []
+
+portals: []

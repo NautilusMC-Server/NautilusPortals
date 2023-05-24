@@ -8,6 +8,7 @@ import net.minecraft.nbt.ByteTag;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -79,8 +80,6 @@ public class NautilusPortalsListener implements Listener {
 
         if (!player.getInventory().addItem(inventory.getResult()).isEmpty()) { return; }
 
-        inventory.setResult(new ItemStack(Material.AIR));
-
         List<ItemStack> recipe = NautilusPortals.INSTANCE.getPortalRecipe(player.getUniqueId());
 
         ItemStack[] matrix = inventory.getMatrix();
@@ -89,9 +88,9 @@ public class NautilusPortalsListener implements Listener {
             if (matrix[i] != null) { matrix[i].setAmount(matrix[i].getAmount() - recipe.get(i).getAmount()); }
         }
 
+        NautilusPortals.INSTANCE.setNumberOfPortals(player.getUniqueId(), NautilusPortals.INSTANCE.getNumberOfPortals(player.getUniqueId())+1);
         inventory.setMatrix(matrix);
 
-        NautilusPortals.INSTANCE.setNumberOfPortals(player.getUniqueId(), NautilusPortals.INSTANCE.getNumberOfPortals(player.getUniqueId())+1);
     }
 
     @EventHandler
@@ -114,9 +113,9 @@ public class NautilusPortalsListener implements Listener {
 
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
-        Bukkit.getLogger().info("" + event.getAction() + event.getItem() + event.getHand() + event.useInteractedBlock() + event.useItemInHand());
+//        Bukkit.getLogger().info("" + event.getAction() + event.getItem() + event.getHand() + event.useInteractedBlock() + event.useItemInHand());
         if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getHand() == EquipmentSlot.HAND && event.getItem() == null && NautilusPortals.INSTANCE.isPortal(event.getClickedBlock().getLocation())) {
-            event.getPlayer().sendMessage(Component.text("Teleport!"));
+            event.getPlayer().sendMessage(Component.text("Portal " + (NautilusPortals.INSTANCE.isValidPortal(event.getClickedBlock().getLocation()) ? "Valid" : "Invalid")));
         }
     }
 
