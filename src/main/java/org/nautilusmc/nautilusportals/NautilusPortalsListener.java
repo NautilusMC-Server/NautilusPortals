@@ -80,7 +80,6 @@ public class NautilusPortalsListener implements Listener {
         if (!player.getInventory().addItem(inventory.getResult()).isEmpty()) { return; }
 
         inventory.setResult(new ItemStack(Material.AIR));
-        NautilusPortals.INSTANCE.setNumberOfPortals(player.getUniqueId(), NautilusPortals.INSTANCE.getNumberOfPortals(player.getUniqueId())+1);
 
         List<ItemStack> recipe = NautilusPortals.INSTANCE.getPortalRecipe(player.getUniqueId());
 
@@ -91,6 +90,8 @@ public class NautilusPortalsListener implements Listener {
         }
 
         inventory.setMatrix(matrix);
+
+        NautilusPortals.INSTANCE.setNumberOfPortals(player.getUniqueId(), NautilusPortals.INSTANCE.getNumberOfPortals(player.getUniqueId())+1);
     }
 
     @EventHandler
