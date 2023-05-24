@@ -5,9 +5,11 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.ConduitBlockEntity;
+import net.minecraft.world.level.material.FlowingFluid;
 import net.minecraft.world.phys.Vec3;
 import org.bukkit.*;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.Levelled;
 import org.bukkit.block.data.Waterlogged;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.craftbukkit.v1_19_R3.CraftWorld;
@@ -111,9 +113,12 @@ public final class NautilusPortals extends JavaPlugin {
 //            Bukkit.getLogger().info("Checking: (" + loc.getBlockX() + "," + loc.getBlockY() + ", " + loc.getBlockZ() + ")");
 
             // TODO: check if too far
+            if (loc.distanceSquared(location) > 5*5) {continue;}
 
             if (loc.getBlock().getType() != Material.WATER) {continue;}
-            // TODO: false if flowing water
+
+//            Levelled blockData = (Levelled) loc.getBlock().getBlockData();
+//            if (blockData.getLevel() != blockData.getMaximumLevel()) {continue;}
 
             if (!loc.clone().add(0,-1,0).getBlock().isSolid() || loc.clone().add(0,1,0).getBlock().isSolid()) {
                 activatingBlocks.clear();
@@ -142,7 +147,7 @@ public final class NautilusPortals extends JavaPlugin {
         if (!getActivatingBlocks(location, activatingBlocks)) {return false;}
 
         for (Location loc : activatingBlocks) {
-            location.getWorld().spawnParticle(Particle.END_ROD, loc.clone().add(0.5,1.5,0.5), 1, 0, 0, 0, 0);
+            location.getWorld().spawnParticle(Particle.END_ROD, loc.clone().add(0.5,1.25,0.5), 1, 0, 0, 0, 0);
         }
 
         return true;
