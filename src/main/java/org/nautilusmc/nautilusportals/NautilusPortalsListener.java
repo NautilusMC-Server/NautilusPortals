@@ -71,9 +71,7 @@ public class NautilusPortalsListener implements Listener {
 
     @EventHandler
     public void onInventoryClickEvent(InventoryClickEvent event) {
-        if (!(event.getInventory() instanceof CraftingInventory) || event.getSlot() != 0 || NautilusPortals.INSTANCE.isPortal(event.getCurrentItem())) { return; }
-
-        CraftingInventory inventory = (CraftingInventory) event.getInventory();
+        if (!(event.getInventory() instanceof CraftingInventory inventory) || event.getSlot() != 0 || inventory.getMatrix().length != 9 || !NautilusPortals.INSTANCE.isPortal(event.getCurrentItem())) { return; }
 
         event.setCancelled(true);
 
@@ -81,7 +79,7 @@ public class NautilusPortalsListener implements Listener {
 
         if (!player.getInventory().addItem(inventory.getResult()).isEmpty()) { return; }
 
-        //inventory.setResult(new ItemStack(Material.AIR));
+        inventory.setResult(new ItemStack(Material.AIR));
         NautilusPortals.INSTANCE.setNumberOfPortals(player.getUniqueId(), NautilusPortals.INSTANCE.getNumberOfPortals(player.getUniqueId())+1);
 
         List<ItemStack> recipe = NautilusPortals.INSTANCE.getPortalRecipe(player.getUniqueId());
