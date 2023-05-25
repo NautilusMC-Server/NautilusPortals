@@ -1,3 +1,5 @@
+maxPortalRadius: 5
+
 portalRecipes:
   - existingPortals: '0'
     recipe:

@@ -13,6 +13,7 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.craftbukkit.v1_19_R3.inventory.CraftItemStack;
+import org.bukkit.craftbukkit.v1_19_R3.persistence.CraftPersistentDataContainer;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
@@ -34,9 +35,11 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.metadata.MetadataValue;
+import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.List;
+import java.util.UUID;
 
 
 public class NautilusPortalsListener implements Listener {
@@ -59,9 +62,9 @@ public class NautilusPortalsListener implements Listener {
         }
 
         if (matches) {
-            ItemStack result = new ItemStack(Material.CONDUIT);
+            ItemStack result = new ItemStack(Material.BEACON);
             ItemMeta meta = result.getItemMeta();
-            meta.displayName(Component.text(player.getName() + "'s Portal #" + (NautilusPortals.INSTANCE.getNumberOfPortals(player.getUniqueId())+1)).color(TextColor.color(240, 0, 255)));
+            meta.displayName(Component.text(player.getName() + "'s Portal #" + (NautilusPortals.INSTANCE.getNumberOfPortals(player.getUniqueId())+1)));
             meta.addEnchant(Enchantment.DURABILITY, 1, true);
             meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
             meta.getPersistentDataContainer().set(NautilusPortals.PORTAL_NBT, PersistentDataType.BYTE, (byte) 1);
@@ -102,10 +105,17 @@ public class NautilusPortalsListener implements Listener {
 
     @EventHandler
     public void onBlockBreakEvent(BlockBreakEvent event) {
-        if (NautilusPortals.INSTANCE.isPortal(event.getBlock().getLocation())) {
-            NautilusPortals.INSTANCE.removePortal(event.getBlock().getLocation());
+        if (!NautilusPortals.INSTANCE.isPortal(event.getBlock().getLocation())) { return; }
+
+        UUID owner = NautilusPortals.INSTANCE.getPortalOwner(event.getBlock().getLocation());
+
+        if (!event.getPlayer().getUniqueId().equals(owner)) {
+            event.setCancelled(true);
+            event.getPlayer().sendActionBar(Component.text("Ask " + Bukkit.getOfflinePlayer(owner).getName() + " to remove this portal!").color(NautilusPortals.TEXT_COLOR_RED));
+            return;
         }
 
+        NautilusPortals.INSTANCE.removePortal(event.getBlock().getLocation());
     }
 
 //    @EventHandler
@@ -113,9 +123,55 @@ public class NautilusPortalsListener implements Listener {
 
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
-//        Bukkit.getLogger().info("" + event.getAction() + event.getItem() + event.getHand() + event.useInteractedBlock() + event.useItemInHand());
-        if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getHand() == EquipmentSlot.HAND && event.getItem() == null && NautilusPortals.INSTANCE.isPortal(event.getClickedBlock().getLocation())) {
-            event.getPlayer().sendMessage(Component.text("Portal " + (NautilusPortals.INSTANCE.isValidPortal(event.getClickedBlock().getLocation()) ? "Valid" : "Invalid")));
+        if (event.getClickedBlock() == null || !NautilusPortals.INSTANCE.isPortal(event.getClickedBlock().getLocation())) {return;}
+
+        if (event.getPlayer().isSneaking()) {
+            if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getItem() == null) event.setCancelled(true);
+        } else {
+            event.setCancelled(true);
+            if (!NautilusPortals.INSTANCE.isValidPortal(event.getClickedBlock().getLocation())) {return;}
+            if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
+                if (event.getItem() != null && event.getItem().getType() == Material.NAUTILUS_SHELL) {
+                    ItemStack item = event.getItem();
+                    UUID owner = NautilusPortals.INSTANCE.getPortalOwner(event.getClickedBlock().getLocation());
+                    if (!event.getPlayer().getUniqueId().equals(owner)) {
+                        event.getPlayer().sendActionBar(Component.text("Ask " + Bukkit.getOfflinePlayer(owner).getName() + " to link to this portal!").color(NautilusPortals.TEXT_COLOR_RED));
+                        return;
+                    }
+                    if (NautilusPortals.INSTANCE.isLinker(item)) {
+                        PersistentDataContainer container = item.getItemMeta().getPersistentDataContainer();
+                        Location otherLoc = new Location(Bukkit.getWorld(container.get(new NamespacedKey(NautilusPortals.INSTANCE, "portalWorld"), PersistentDataType.STRING)), container.get(new NamespacedKey(NautilusPortals.INSTANCE, "portalX"), PersistentDataType.INTEGER), container.get(new NamespacedKey(NautilusPortals.INSTANCE, "portalY"), PersistentDataType.INTEGER), container.get(new NamespacedKey(NautilusPortals.INSTANCE, "portalZ"), PersistentDataType.INTEGER));
+                        if (otherLoc.equals(event.getClickedBlock().getLocation())) {
+                            event.getPlayer().sendActionBar(Component.text("You can't link a portal to itself!").color(NautilusPortals.TEXT_COLOR_RED));
+                            return;
+                        }
+                        if (NautilusPortals.INSTANCE.getPortalConnections(event.getClickedBlock().getLocation()).contains(otherLoc)) {
+                            event.getPlayer().sendActionBar(Component.text("These portals are already linked!").color(NautilusPortals.TEXT_COLOR_RED));
+                            return;
+                        }
+                        NautilusPortals.INSTANCE.connectPortals(event.getClickedBlock().getLocation(), otherLoc);
+                        item.setAmount(item.getAmount()-1);
+                        event.getPlayer().sendActionBar(Component.text("Portals linked!").color(NautilusPortals.TEXT_COLOR_1));
+                    } else {
+                        ItemMeta meta = item.getItemMeta();
+                        meta.displayName(Component.text("Portal Linker to " + NautilusPortals.INSTANCE.getPortalName(event.getClickedBlock().getLocation())));
+                        meta.addEnchant(Enchantment.DURABILITY, 1, true);
+                        meta.addItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
+                        Location loc = event.getClickedBlock().getLocation();
+                        meta.getPersistentDataContainer().set(new NamespacedKey(NautilusPortals.INSTANCE, "portalWorld"), PersistentDataType.STRING, loc.getWorld().getName());
+                        meta.getPersistentDataContainer().set(new NamespacedKey(NautilusPortals.INSTANCE, "portalX"), PersistentDataType.INTEGER, loc.getBlockX());
+                        meta.getPersistentDataContainer().set(new NamespacedKey(NautilusPortals.INSTANCE, "portalY"), PersistentDataType.INTEGER, loc.getBlockY());
+                        meta.getPersistentDataContainer().set(new NamespacedKey(NautilusPortals.INSTANCE, "portalZ"), PersistentDataType.INTEGER, loc.getBlockZ());
+                        item.setItemMeta(meta);
+
+                    }
+                } else {
+                    NautilusPortals.INSTANCE.addPortalSelectionIndex(event.getClickedBlock().getLocation(),1);
+                }
+
+            } else if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
+                NautilusPortals.INSTANCE.addPortalSelectionIndex(event.getClickedBlock().getLocation(),-1);
+            }
         }
     }
 
