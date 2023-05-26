@@ -1,24 +1,19 @@
 package org.nautilusmc.nautilusportals;
 
 import com.mojang.datafixers.util.Pair;
+import net.kyori.adventure.chat.ChatType;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
-import net.minecraft.world.level.block.BeaconBeamBlock;
-import net.minecraft.world.level.block.entity.BeaconBlockEntity;
 import org.bukkit.*;
-import org.bukkit.block.Block;
 import org.bukkit.block.data.Levelled;
-import org.bukkit.block.data.Waterlogged;
-import org.bukkit.configuration.MemorySection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.*;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.util.BoundingBox;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -36,6 +31,10 @@ public final class NautilusPortals extends JavaPlugin {
     public static TextColor TEXT_COLOR_RED = TextColor.color(200,50,50);
 
     public List<List<Location>> activePortals;
+
+    public boolean consumesLinker() {
+        return this.getConfig().getBoolean("consumesLinker");
+    }
 
     public boolean isPortal(ItemStack item) {
         return item != null && item.getType() == Material.BEACON && item.hasItemMeta() && item.getItemMeta().getPersistentDataContainer().get(NautilusPortals.PORTAL_NBT, PersistentDataType.BYTE) == (byte) 1;
@@ -160,26 +159,30 @@ public final class NautilusPortals extends JavaPlugin {
 
     public boolean isPortal(Location location) {
         if (location.getBlock().getType() != Material.BEACON) {return false;}
+        return getPortals().contains(location);
+    }
+
+    public List<Location> getPortals() {
         FileConfiguration config = this.getConfig();
         List<Map<?,?>> portals = config.getMapList("portals");
-        return portals.stream().anyMatch(portal -> portal.get("location").equals(location));
+        return portals.stream().map(portal -> (Location) portal.get("location")).collect(Collectors.toList());
     }
 
-    private boolean isLowWater(Location location) {
-        return location.getBlock().getType() == Material.WATER && ((Levelled) location.getBlock().getBlockData()).getLevel() != 0;
+    private boolean isLowFluid(Location location, Material fluid) {
+        return location.getBlock().getType() == fluid && ((Levelled) location.getBlock().getBlockData()).getLevel() != 0;
     }
 
-    private boolean isStaticWater(Location location) {
-        return location.getBlock().getType() == Material.WATER
-                && !isLowWater(location)
-                && !isLowWater(location.clone().add(1,0,0))
-                && !isLowWater(location.clone().add(-1,0,0))
-                && !isLowWater(location.clone().add(0,0,1))
-                && !isLowWater(location.clone().add(0,0,-1));
+    private boolean isStaticFluid(Location location, Material fluid) {
+        return location.getBlock().getType() == fluid
+                && !isLowFluid(location, fluid)
+                && !isLowFluid(location.clone().add(1,0,0), fluid)
+                && !isLowFluid(location.clone().add(-1,0,0), fluid)
+                && !isLowFluid(location.clone().add(0,0,1), fluid)
+                && !isLowFluid(location.clone().add(0,0,-1), fluid);
     }
 
     private boolean isValidPortalBlock(Location location) {
-        return isStaticWater(location)
+        return isStaticFluid(location, location.getWorld().isUltraWarm() ? Material.LAVA : Material.WATER)
                 && location.clone().add(0,-1,0).getBlock().isSolid()
                 && !location.clone().add(0,1,0).getBlock().getType().isOccluding();
     }
@@ -191,48 +194,77 @@ public final class NautilusPortals extends JavaPlugin {
             return false;
         }
 
-        Stack<Location> stack = new Stack<>();
+        Queue<Pair<Location,Integer>> queue = new LinkedList<>();
         Set<Location> visited = new HashSet<>();
+        visited.add(location);
 
         for (int x = -1; x <= 1; x++) {
             for (int z = -1; z <= 1; z++) {
                 if (!(x == 0 && z == 0) && !isValidPortalBlock(location.clone().add(x,0,z))) {
                     return false;
                 }
-                stack.push(location.clone().add(x,0, z));
+                queue.add(Pair.of(location.clone().add(x,0, z),1));
             }
         }
 
-        int maxDistSquared = this.getConfig().getInt("maxPortalRadius");
-        maxDistSquared *= maxDistSquared;
+        int maxDist = this.getConfig().getInt("maxPortalRadius");
 
-        while (!stack.isEmpty()) {
-            Location loc = stack.pop();
-            if (visited.contains(loc)) {continue;}
-            visited.add(loc);
+        List<Location> portals = getPortals();
 
-            if (loc.distanceSquared(location) > maxDistSquared || !isValidPortalBlock(loc)) {continue;}
+        while (!queue.isEmpty()) {
+            Pair<Location,Integer> pair = queue.remove();
+            Location loc = pair.getFirst();
+            int dist = pair.getSecond();
 
-            activatingBlocks.add(loc);
+            if (!visited.add(loc)) {continue;}
 
-            stack.push(loc.clone().add(1, 0, 0));
-            stack.push(loc.clone().add(-1, 0, 0));
-            stack.push(loc.clone().add(0, 0, 1));
-            stack.push(loc.clone().add(0, 0, -1));
+            if (dist > 2*maxDist+1) {continue;}
+
+            if (portals.contains(loc)) {
+                activatingBlocks.clear();
+                return false;
+            }
+
+            if (!isValidPortalBlock(loc)) {continue;}
+
+            queue.add(Pair.of(loc.clone().add(1, 0, 0), dist + 1));
+            queue.add(Pair.of(loc.clone().add(-1, 0, 0), dist + 1));
+            queue.add(Pair.of(loc.clone().add(0, 0, 1), dist + 1));
+            queue.add(Pair.of(loc.clone().add(0, 0, -1), dist + 1));
+
+            if (dist <= maxDist && !activatingBlocks.contains(loc)) {
+                activatingBlocks.add(loc);
+            }
+
+
         }
 
         return true;
     }
 
-    public void updatePlayers() {
+    public void updateEntities() {
         FileConfiguration config = this.getConfig();
+
+//        int radius = config.getInt("maxPortalRadius");
+//
+        for (List<Location> portal : activePortals) {
+            if (portal.get(0).getWorld().isUltraWarm()) {
+                for (Location loc : portal) {
+                    for (Entity e : loc.getNearbyEntities(1, 1, 1)) {
+                        if (e instanceof LivingEntity le) {
+                            le.addPotionEffect(PotionEffectType.FIRE_RESISTANCE.createEffect(100, 0).withIcon(false));
+                        }
+                    }
+                }
+            }
+        }
 
         for (Player player : Bukkit.getOnlinePlayers()) {
             Location location = new Location(player.getLocation().getWorld(),player.getLocation().blockX(),player.getLocation().blockY(),player.getLocation().blockZ());
             String dataPath = "players."+player.getUniqueId()+".";
 
-//            Bukkit.getLogger().info(""+location);
-            List<Location> portalBlocks = activePortals.stream().filter(p -> p.contains(location)).min(Comparator.comparingDouble(p -> p.get(0).distanceSquared(location))).orElse(null);
+            BoundingBox bb = player.getBoundingBox();
+            List<Location> portalBlocks = activePortals.stream().filter(p -> p.stream().anyMatch(l -> bb.overlaps(BoundingBox.of(l.getBlock())))).min(Comparator.comparingDouble(p -> p.get(0).distanceSquared(location))).orElse(null);
             if (portalBlocks == null) {
                 config.set(dataPath+"portalTime", 0);
                 continue;
@@ -245,7 +277,7 @@ public final class NautilusPortals extends JavaPlugin {
                 continue;
             }
             if (config.getInt(dataPath+"portalTime") < 0) {
-                player.addPotionEffect(PotionEffectType.CONFUSION.createEffect(80, 0).withIcon(false));
+                player.addPotionEffect(PotionEffectType.CONFUSION.createEffect(70, 0).withIcon(false));
                 continue;
             }
 
@@ -258,10 +290,10 @@ public final class NautilusPortals extends JavaPlugin {
             int portalTime = config.getInt(dataPath+"portalTime") + 1;
             config.set(dataPath+"portalTime", portalTime);
 
-            if (portalTime >= 20) {
-                player.addPotionEffect(PotionEffectType.CONFUSION.createEffect(80, 0).withIcon(false));
+            if (portalTime >= 10) {
+                player.addPotionEffect(PotionEffectType.CONFUSION.createEffect(70, 0).withIcon(false));
             }
-            if (portalTime >= 160 && getActivatingBlocks(portal, null)) {
+            if (portalTime >= 110 && getActivatingBlocks(portal, null)) {
                 List<Location> connections = ((List<Location>)portalData.get("connections"));
                 int selection = (int) portalData.get("selection");
                 List<Location> destBlocks = new ArrayList<>();
@@ -269,7 +301,7 @@ public final class NautilusPortals extends JavaPlugin {
                     player.sendActionBar(Component.text("Destination invalid!").color(TEXT_COLOR_RED));
                 } else {
                     Random rand = new Random();
-                    player.teleport(destBlocks.get(rand.nextInt(destBlocks.size())));
+                    player.teleport(destBlocks.get(rand.nextInt(/*destBlocks.size()*/ 8)).clone().add(0.5, 0,0.5));
                 }
                 config.set(dataPath+"portalTime", -1);
             }
@@ -305,7 +337,7 @@ public final class NautilusPortals extends JavaPlugin {
         activePortals = new ArrayList<>();
         Bukkit.getScheduler().runTaskTimer(this, this::updatePortals, 0, 80);
         Bukkit.getScheduler().runTaskTimer(this, this::animatePortals, 0, 5);
-        Bukkit.getScheduler().runTaskTimer(this, this::updatePlayers, 0, 1);
+        Bukkit.getScheduler().runTaskTimer(this, this::updateEntities, 0, 1);
 
     }
 
@@ -353,9 +385,18 @@ public final class NautilusPortals extends JavaPlugin {
 
                 armorStands.get(0).customName(Component.text((String)p.get("displayName")).decorate(TextDecoration.BOLD).decorate(TextDecoration.UNDERLINED).color(TEXT_COLOR_1));
 
-                armorStands.get(1).customName(getConnectionText(index-1,connections,portals).decorate(TextDecoration.ITALIC));
                 armorStands.get(2).customName(Component.text("-> ").color(TEXT_COLOR_1).decorate(TextDecoration.BOLD).append(getConnectionText(index,connections,portals).decorate(TextDecoration.BOLD)));
-                armorStands.get(3).customName(getConnectionText(index+1,connections,portals).decorate(TextDecoration.ITALIC));
+
+                if (connections.size() > 1) {
+                    armorStands.get(3).customName(getConnectionText(index+1,connections,portals).decorate(TextDecoration.ITALIC));
+                } else {
+                    armorStands.get(3).setCustomNameVisible(false);
+                }
+                if (connections.size() > 2) {
+                    armorStands.get(1).customName(getConnectionText(index-1,connections,portals).decorate(TextDecoration.ITALIC));
+                } else {
+                    armorStands.get(1).setCustomNameVisible(false);
+                }
             } else {
                 armorStands.forEach(e->e.setCustomNameVisible(false));
             }
@@ -373,7 +414,8 @@ public final class NautilusPortals extends JavaPlugin {
         Map<?,?> portal = portals.stream().filter(p -> ((Location)p.get("location")).equals(loc)).findFirst().orElse(null);
         if (portal == null) {return Component.text("");}
 
-        Component c = Component.text((String) portal.get("displayName")).color(TEXT_COLOR_2).append(Component.text(" (" + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ() + ")").color(TEXT_COLOR_3));
+        Component c = Component.text((String) portal.get("displayName")).color(TEXT_COLOR_2);
+//        c = c.append(Component.text(" (" + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ() + ")").color(TEXT_COLOR_3));
         return (boolean) portal.get("valid") ? c : c.color(TextColor.color(TEXT_COLOR_RED)).decorate(TextDecoration.STRIKETHROUGH);
     }
 
@@ -385,7 +427,6 @@ public final class NautilusPortals extends JavaPlugin {
                 int idx = rand.nextInt(len) + 1;
                 Location loc = portal.get(idx);
                 loc.getWorld().spawnParticle(Particle.END_ROD, loc.clone().add(Math.random(), 1.4, Math.random()), 1, 0, 0, 0, 0);
-
             }
 //            Location loc = portal.get(0);
 //            loc.getWorld().spawnParticle(Particle.NAUTILUS, loc.clone().add(0.5,2,0.5), 4, 0.15, 0.4, 0.15, 0);
@@ -441,5 +482,17 @@ public final class NautilusPortals extends JavaPlugin {
 
         return recipe;
 
+    }
+
+    public void setDisplayName(Location location, String content) {
+        FileConfiguration config = this.getConfig();
+        List<Map<?,?>> portals = config.getMapList("portals");
+        Map<Object, Object> portal = (Map<Object, Object>) portals.stream().filter(p -> p.get("location").equals(location)).findFirst().orElse(null);
+        if (portal == null) {return;}
+        portal.put("displayName", content);
+        config.set("portals", portals);
+        this.saveConfig();
+
+        updatePortalText();
     }
 }

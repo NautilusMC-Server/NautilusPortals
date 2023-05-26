@@ -1,40 +1,25 @@
 package org.nautilusmc.nautilusportals;
 
-import com.destroystokyo.paper.event.block.BlockDestroyEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
-import net.kyori.adventure.text.format.TextColor;
-import net.minecraft.nbt.ByteTag;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.Tag;
+import net.minecraft.world.item.NameTagItem;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.craftbukkit.v1_19_R3.inventory.CraftItemStack;
-import org.bukkit.craftbukkit.v1_19_R3.persistence.CraftPersistentDataContainer;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.HumanEntity;
-import org.bukkit.entity.Player;
-import org.bukkit.event.Cancellable;
-import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.event.block.BlockEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
-import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.CraftingInventory;
-import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.metadata.FixedMetadataValue;
-import org.bukkit.metadata.MetadataValue;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
@@ -109,7 +94,7 @@ public class NautilusPortalsListener implements Listener {
 
         UUID owner = NautilusPortals.INSTANCE.getPortalOwner(event.getBlock().getLocation());
 
-        if (!event.getPlayer().getUniqueId().equals(owner)) {
+        if (!event.getPlayer().getUniqueId().equals(owner) && !event.getPlayer().hasPermission("nautilusportals.break_others")) {
             event.setCancelled(true);
             event.getPlayer().sendActionBar(Component.text("Ask " + Bukkit.getOfflinePlayer(owner).getName() + " to remove this portal!").color(NautilusPortals.TEXT_COLOR_RED));
             return;
@@ -123,18 +108,41 @@ public class NautilusPortalsListener implements Listener {
 
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
+        ItemStack item = event.getItem();
+
+        if (event.getAction() == Action.RIGHT_CLICK_AIR && NautilusPortals.INSTANCE.isLinker(item)) {
+            event.setCancelled(true);
+            
+            ItemMeta meta = item.getItemMeta();
+            meta.displayName(null);
+            meta.removeEnchant(Enchantment.DURABILITY);
+            meta.removeItemFlags(org.bukkit.inventory.ItemFlag.HIDE_ENCHANTS);
+            meta.getPersistentDataContainer().remove(new NamespacedKey(NautilusPortals.INSTANCE, "portalWorld"));
+            meta.getPersistentDataContainer().remove(new NamespacedKey(NautilusPortals.INSTANCE, "portalX"));
+            meta.getPersistentDataContainer().remove(new NamespacedKey(NautilusPortals.INSTANCE, "portalY"));
+            meta.getPersistentDataContainer().remove(new NamespacedKey(NautilusPortals.INSTANCE, "portalZ"));
+            item.setItemMeta(meta);
+        }
+
         if (event.getClickedBlock() == null || !NautilusPortals.INSTANCE.isPortal(event.getClickedBlock().getLocation())) {return;}
 
         if (event.getPlayer().isSneaking()) {
-            if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getItem() == null) event.setCancelled(true);
+            if (event.getAction() == Action.RIGHT_CLICK_BLOCK && item == null) event.setCancelled(true);
         } else {
             event.setCancelled(true);
             if (!NautilusPortals.INSTANCE.isValidPortal(event.getClickedBlock().getLocation())) {return;}
             if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
-                if (event.getItem() != null && event.getItem().getType() == Material.NAUTILUS_SHELL) {
-                    ItemStack item = event.getItem();
+                if (item!= null && item.getType() == Material.NAME_TAG && item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
                     UUID owner = NautilusPortals.INSTANCE.getPortalOwner(event.getClickedBlock().getLocation());
-                    if (!event.getPlayer().getUniqueId().equals(owner)) {
+                    if (!event.getPlayer().getUniqueId().equals(owner) && !event.getPlayer().hasPermission("nautilusportals.rename_others")) {
+                        event.getPlayer().sendActionBar(Component.text("You don't have permission to rename this portal!").color(NautilusPortals.TEXT_COLOR_RED));
+                        return;
+                    }
+                    NautilusPortals.INSTANCE.setDisplayName(event.getClickedBlock().getLocation(), ((TextComponent) item.getItemMeta().displayName()).content());
+                }
+                else if (item != null && item.getType() == Material.NAUTILUS_SHELL) {
+                    UUID owner = NautilusPortals.INSTANCE.getPortalOwner(event.getClickedBlock().getLocation());
+                    if (!event.getPlayer().getUniqueId().equals(owner) && !event.getPlayer().hasPermission("nautilusportals.link_others")) {
                         event.getPlayer().sendActionBar(Component.text("Ask " + Bukkit.getOfflinePlayer(owner).getName() + " to link to this portal!").color(NautilusPortals.TEXT_COLOR_RED));
                         return;
                     }
@@ -150,7 +158,7 @@ public class NautilusPortalsListener implements Listener {
                             return;
                         }
                         NautilusPortals.INSTANCE.connectPortals(event.getClickedBlock().getLocation(), otherLoc);
-                        item.setAmount(item.getAmount()-1);
+                        if (NautilusPortals.INSTANCE.consumesLinker()) {item.setAmount(item.getAmount()-1);}
                         event.getPlayer().sendActionBar(Component.text("Portals linked!").color(NautilusPortals.TEXT_COLOR_1));
                     } else {
                         ItemMeta meta = item.getItemMeta();

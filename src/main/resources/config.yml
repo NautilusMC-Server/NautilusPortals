@@ -1,4 +1,5 @@
 maxPortalRadius: 5
+consumesLinker: false
 
 portalRecipes:
   - existingPortals: '0'
